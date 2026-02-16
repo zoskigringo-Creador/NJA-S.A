@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Stock El Tijerazo</title>
     
     <!-- Tailwind CSS para diseño adaptable (Móvil/Web) -->
@@ -36,7 +36,13 @@
         }
     </script>
     <style>
-        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; }
+        /* Bloqueo de refresco y comportamiento elástico en móviles */
+        body { 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            background-color: #f8fafc;
+            overscroll-behavior-y: contain; /* Evita el pull-to-refresh en móviles */
+            touch-action: pan-x pan-y;
+        }
         .drag-active { border-color: #0ea5e9; background-color: #f0f9ff; }
         /* Animación suave al cargar */
         .fade-in { animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
@@ -228,6 +234,25 @@
     </div>
 
     <script>
+        // --- PREVENIR CIERRE/REFRESCO ACCIDENTAL ---
+        window.addEventListener('beforeunload', function (e) {
+            // Solo activar si hay datos cargados
+            if (inventoryData.length > 0) {
+                e.preventDefault(); 
+                e.returnValue = ''; // Requerido por Chrome
+                return '¿Seguro que quieres salir? Se perderán los datos cargados.';
+            }
+        });
+
+        // --- FORMATO DE NÚMEROS (ES-ES para usar COMA decimal) ---
+        // Ejemplo: 1.500,36
+        const formatNumber = (num) => {
+            return new Intl.NumberFormat('es-ES', { 
+                minimumFractionDigits: 0, 
+                maximumFractionDigits: 2 
+            }).format(num);
+        };
+
         // --- Variables Globales ---
         let inventoryData = [];
         let topProductsChartInstance = null;
@@ -262,15 +287,15 @@
         function loadDemoData() {
             showLoading(true);
             
-            // Datos con Códigos de Barra ficticios
+            // Datos con Códigos de Barra ficticios y Decimales para probar formato
             inventoryData = [
-                { codigo: "78400123", producto: "Popelina Rayada", categoria: "Algodón", stock: 1000, ventas: 5000 },
-                { codigo: "78400567", producto: "Gabardina Azul", categoria: "Sintético", stock: 2000, ventas: 1500 },
+                { codigo: "78400123", producto: "Popelina Rayada", categoria: "Algodón", stock: 1000.50, ventas: 5000 },
+                { codigo: "78400567", producto: "Gabardina Azul", categoria: "Sintético", stock: 2000, ventas: 1500.25 },
                 { codigo: "78400890", producto: "Lino Blanco", categoria: "Natural", stock: 8000, ventas: 7950 },
-                { codigo: "78400432", producto: "Seda Roja", categoria: "Lujo", stock: 5000, ventas: 4000 },
+                { codigo: "78400432", producto: "Seda Roja", categoria: "Lujo", stock: 5000.10, ventas: 4000 },
                 { codigo: "78400111", producto: "Drill Kaki", categoria: "Uniformes", stock: 500, ventas: 1200 },
                 { codigo: "78400222", producto: "Encaje Negro", categoria: "Lencería", stock: 2500, ventas: 300 },
-                { codigo: "78400333", producto: "Lona Gris", categoria: "Exterior", stock: 900, ventas: 2100 }
+                { codigo: "78400333", producto: "Lona Gris", categoria: "Exterior", stock: 900.80, ventas: 2100 }
             ];
 
             setTimeout(() => {
@@ -326,6 +351,9 @@
         }
 
         function resetApp() {
+            // Confirmación antes de resetear manual
+            if(!confirm("¿Borrar datos actuales y cargar nuevo archivo?")) return;
+
             document.getElementById('fileInput').value = '';
             document.getElementById('dashboardSection').classList.add('hidden');
             document.getElementById('uploadSection').classList.remove('hidden');
@@ -376,10 +404,10 @@
                             </span>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-right">
-                            <div class="text-sm text-gray-900 font-bold font-mono">${item.stock.toLocaleString()}</div>
+                            <div class="text-sm text-gray-900 font-bold font-mono">${formatNumber(item.stock)}</div>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-right">
-                            <div class="text-sm text-gray-500">${item.ventas.toLocaleString()}</div>
+                            <div class="text-sm text-gray-500">${formatNumber(item.ventas)}</div>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-center">
                             <div class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${status.class}">
@@ -494,8 +522,13 @@
             const step = (timestamp) => {
                 if (!startTimestamp) startTimestamp = timestamp;
                 const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-                const value = Math.floor(progress * (end - start) + start);
-                obj.innerHTML = value.toLocaleString() + suffix;
+                
+                // Mantiene decimales si el número no es entero
+                let value = progress * (end - start) + start;
+                // Si ya terminó, aseguramos el valor final
+                if (progress >= 1) value = end;
+                
+                obj.innerHTML = formatNumber(value) + suffix;
                 if (progress < 1) window.requestAnimationFrame(step);
             };
             window.requestAnimationFrame(step);
@@ -504,8 +537,8 @@
         function downloadTemplate() {
             const ws_data = [
                 ["CODIGO", "PRODUCTO", "CATEGORIA", "STOCK", "VENTAS"],
-                ["784001", "Ejemplo Tela 1", "Algodón", 900, 500],
-                ["784002", "Ejemplo Tela 2", "Sintético", 3500, 1200]
+                ["784001", "Ejemplo Tela 1", "Algodón", 900.5, 500],
+                ["784002", "Ejemplo Tela 2", "Sintético", 3500, 1200.20]
             ];
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.aoa_to_sheet(ws_data);

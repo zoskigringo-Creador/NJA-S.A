@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock El Tijerazo</title>
+    
+    <!-- Tailwind CSS para diseño adaptable (Móvil/Web) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js para los gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- SheetJS para leer Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- FontAwesome para iconos visuales -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <!-- Configuración de colores corporativos -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        tijerazo: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; }
+        .drag-active { border-color: #0ea5e9; background-color: #f0f9ff; }
+        /* Animación suave al cargar */
+        .fade-in { animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <!-- Navegación Simplificada -->
+    <nav class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center gap-2">
+                    <div class="bg-tijerazo-100 p-2 rounded-lg">
+                        <i class="fa-solid fa-scissors text-tijerazo-600 text-xl"></i>
+                    </div>
+                    <span class="font-bold text-lg md:text-xl text-gray-800 tracking-tight">El Tijerazo Stock</span>
+                </div>
+                <div>
+                    <button onclick="downloadTemplate()" class="text-sm bg-gray-50 hover:bg-gray-100 text-tijerazo-600 px-4 py-2 rounded-lg font-medium transition-colors border border-gray-200">
+                        <i class="fa-solid fa-download mr-1"></i> <span class="hidden sm:inline">Bajar Plantilla</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Contenido Principal -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        
+        <!-- Sección de Carga (Upload) -->
+        <div id="uploadSection" class="bg-white rounded-2xl shadow-sm p-6 md:p-12 text-center mb-8 border-2 border-dashed border-gray-300 transition-all duration-200"
+             ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+            
+            <div class="mb-6">
+                <div class="mx-auto h-24 w-24 bg-blue-50 rounded-full flex items-center justify-center text-tijerazo-500 text-4xl shadow-inner">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                </div>
+            </div>
+            <h2 class="text-2xl md:text-3xl font-bold text-gray-800 mb-3">Cargar Inventario</h2>
+            <p class="text-gray-500 mb-8 max-w-md mx-auto">Sube tu archivo Excel para analizar el stock y ventas al instante.</p>
+            
+            <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls" onchange="handleFileSelect(event)">
+            
+            <div class="flex flex-col sm:flex-row justify-center gap-4 w-full max-w-lg mx-auto">
+                <button onclick="document.getElementById('fileInput').click()" 
+                        class="w-full bg-tijerazo-600 hover:bg-tijerazo-900 text-white font-bold py-3.5 px-6 rounded-xl shadow-lg shadow-blue-200 transition duration-200 active:scale-95">
+                    Seleccionar Excel
+                </button>
+                
+                <button onclick="loadDemoData()" 
+                        class="w-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-tijerazo-600 font-bold py-3.5 px-6 rounded-xl shadow-sm transition duration-200">
+                    Ver Demo (Tus Datos)
+                </button>
+            </div>
+            
+            <p class="mt-6 text-xs text-gray-400 font-mono bg-gray-50 inline-block px-3 py-1 rounded">
+                Columnas: CODIGO | PRODUCTO | CATEGORIA | STOCK | VENTAS
+            </p>
+        </div>
+
+        <!-- Dashboard (Oculto inicialmente) -->
+        <div id="dashboardSection" class="hidden fade-in space-y-6 md:space-y-8">
+            
+            <!-- KPIs (Tarjetas Superiores) -->
+            <!-- En móvil: 1 columna, Tablet: 2 columnas, Desktop: 4 columnas -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                <!-- Total Telas -->
+                <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm relative overflow-hidden group">
+                    <div class="absolute right-0 top-0 h-full w-1 bg-blue-500"></div>
+                    <p class="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Total Productos</p>
+                    <h3 class="text-3xl font-extrabold text-gray-800 group-hover:scale-105 transition-transform origin-left" id="kpiTotalProducts">0</h3>
+                    <div class="absolute right-4 bottom-4 text-blue-100 text-4xl -z-0"><i class="fa-solid fa-box"></i></div>
+                </div>
+                
+                <!-- Stock Crítico -->
+                <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm relative overflow-hidden group">
+                    <div class="absolute right-0 top-0 h-full w-1 bg-red-500"></div>
+                    <p class="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Stock Crítico (<1k)</p>
+                    <h3 class="text-3xl font-extrabold text-red-600 group-hover:scale-105 transition-transform origin-left" id="kpiCritical">0</h3>
+                    <div class="absolute right-4 bottom-4 text-red-50 text-4xl -z-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                </div>
+
+                <!-- Total Metros -->
+                <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm relative overflow-hidden group">
+                    <div class="absolute right-0 top-0 h-full w-1 bg-green-500"></div>
+                    <p class="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Metros Totales</p>
+                    <h3 class="text-3xl font-extrabold text-gray-800 group-hover:scale-105 transition-transform origin-left" id="kpiTotalStock">0</h3>
+                    <div class="absolute right-4 bottom-4 text-green-50 text-4xl -z-0"><i class="fa-solid fa-ruler"></i></div>
+                </div>
+
+                 <!-- Total Ventas -->
+                 <div class="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm relative overflow-hidden group">
+                    <div class="absolute right-0 top-0 h-full w-1 bg-purple-500"></div>
+                    <p class="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Ventas Acumuladas</p>
+                    <h3 class="text-3xl font-extrabold text-gray-800 group-hover:scale-105 transition-transform origin-left" id="kpiTotalSales">0</h3>
+                    <div class="absolute right-4 bottom-4 text-purple-50 text-4xl -z-0"><i class="fa-solid fa-chart-line"></i></div>
+                </div>
+            </div>
+
+            <!-- Sección de Gráficos -->
+            <!-- En móvil: Se apilan (grid-cols-1). En Desktop: Lado a lado (grid-cols-2) -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+                <!-- Top Productos -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-bold text-gray-800">Más Vendidos</h3>
+                        <span class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-semibold">Top 5</span>
+                    </div>
+                    <div class="relative h-64 md:h-72 w-full">
+                        <canvas id="topProductsChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Estado del Stock (Pie Chart) -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-bold text-gray-800">Estado del Inventario</h3>
+                        <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-semibold">Resumen</span>
+                    </div>
+                    <div class="relative h-64 md:h-72 w-full flex justify-center">
+                        <canvas id="stockStatusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Datos -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <!-- Cabecera de la tabla con controles -->
+                <div class="p-5 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <h3 class="text-lg font-bold text-gray-800 w-full md:w-auto">Listado de Telas</h3>
+                    
+                    <div class="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                        <div class="relative w-full sm:w-64">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-3.5 text-gray-400 text-sm"></i>
+                            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Buscar por código o tela..." 
+                                   class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-tijerazo-500 focus:border-transparent bg-white shadow-sm">
+                        </div>
+                        <select id="statusFilter" onchange="filterTable()" class="w-full sm:w-auto border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-tijerazo-500 bg-white shadow-sm cursor-pointer">
+                            <option value="all">Todos</option>
+                            <option value="critical">🔴 Crítico (<1k)</option>
+                            <option value="warning">🟠 Medio (1k-3k)</option>
+                            <option value="good">🟢 Bueno (>3k)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Contenedor scrollable para móvil -->
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-100">
+                        <thead class="bg-gray-50 text-gray-500 text-xs uppercase font-bold tracking-wider">
+                            <tr>
+                                <th class="px-6 py-4 text-left">Código</th>
+                                <th class="px-6 py-4 text-left">Producto</th>
+                                <th class="px-6 py-4 text-left">Categoría</th>
+                                <th class="px-6 py-4 text-right">Stock (m)</th>
+                                <th class="px-6 py-4 text-right">Ventas</th>
+                                <th class="px-6 py-4 text-center">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventoryTableBody" class="bg-white divide-y divide-gray-100">
+                            <!-- Filas generadas por JS -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 text-xs text-gray-500 flex justify-between items-center" id="tableFooterInfo">
+                    <span>Esperando datos...</span>
+                </div>
+            </div>
+
+            <!-- Botón reset -->
+            <div class="mt-8 text-center pb-8">
+                <button onclick="resetApp()" class="text-gray-400 hover:text-red-500 text-sm font-medium transition-colors flex items-center justify-center gap-2 mx-auto">
+                    <i class="fa-solid fa-trash-can"></i> Limpiar y cargar otro archivo
+                </button>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Modal de Carga -->
+    <div id="loadingModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm hidden items-center justify-center z-[100]">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm mx-4 w-full animate-bounce-slight">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-tijerazo-500 mb-4"></div>
+            <h3 class="text-lg font-bold text-gray-800">Analizando Datos</h3>
+            <p class="text-gray-500 text-sm text-center mt-2">Calculando stock y generando reportes...</p>
+        </div>
+    </div>
+
+    <script>
+        // --- Variables Globales ---
+        let inventoryData = [];
+        let topProductsChartInstance = null;
+        let stockStatusChartInstance = null;
+
+        // --- Funciones de Drag & Drop ---
+        const uploadSection = document.getElementById('uploadSection');
+        
+        function handleDragOver(e) {
+            e.preventDefault();
+            uploadSection.classList.add('drag-active');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            uploadSection.classList.remove('drag-active');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            uploadSection.classList.remove('drag-active');
+            const files = e.dataTransfer.files;
+            if(files.length > 0) processFile(files[0]);
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if(files.length > 0) processFile(files[0]);
+        }
+
+        // --- Datos de Demo (Actualizado con Código) ---
+        function loadDemoData() {
+            showLoading(true);
+            
+            // Datos con Códigos de Barra ficticios
+            inventoryData = [
+                { codigo: "78400123", producto: "Popelina Rayada", categoria: "Algodón", stock: 1000, ventas: 5000 },
+                { codigo: "78400567", producto: "Gabardina Azul", categoria: "Sintético", stock: 2000, ventas: 1500 },
+                { codigo: "78400890", producto: "Lino Blanco", categoria: "Natural", stock: 8000, ventas: 7950 },
+                { codigo: "78400432", producto: "Seda Roja", categoria: "Lujo", stock: 5000, ventas: 4000 },
+                { codigo: "78400111", producto: "Drill Kaki", categoria: "Uniformes", stock: 500, ventas: 1200 },
+                { codigo: "78400222", producto: "Encaje Negro", categoria: "Lencería", stock: 2500, ventas: 300 },
+                { codigo: "78400333", producto: "Lona Gris", categoria: "Exterior", stock: 900, ventas: 2100 }
+            ];
+
+            setTimeout(() => {
+                showLoading(false);
+                switchView();
+                renderDashboard();
+            }, 800);
+        }
+
+        // --- Procesamiento del Excel ---
+        function processFile(file) {
+            showLoading(true);
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                
+                // Mapeo tolerante: Busca columnas CODIGO, BARCODE, ID, etc.
+                inventoryData = jsonData.map(row => {
+                    const getKey = (key) => Object.keys(row).find(k => k.toUpperCase().includes(key));
+                    
+                    return {
+                        codigo: row[getKey('CODIGO')] || row[getKey('BARCODE')] || row[getKey('ID')] || '---',
+                        producto: row[getKey('PRODUCTO')] || 'Sin Nombre',
+                        categoria: row[getKey('CATEGORIA')] || 'General',
+                        stock: Number(row[getKey('STOCK')]) || 0,
+                        ventas: Number(row[getKey('VENTA')]) || 0
+                    };
+                });
+
+                setTimeout(() => {
+                    showLoading(false);
+                    switchView();
+                    renderDashboard();
+                }, 600);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- UI Utils ---
+        function showLoading(show) {
+            const modal = document.getElementById('loadingModal');
+            show ? modal.classList.replace('hidden', 'flex') : modal.classList.replace('flex', 'hidden');
+        }
+
+        function switchView() {
+            document.getElementById('uploadSection').classList.add('hidden');
+            document.getElementById('dashboardSection').classList.remove('hidden');
+        }
+
+        function resetApp() {
+            document.getElementById('fileInput').value = '';
+            document.getElementById('dashboardSection').classList.add('hidden');
+            document.getElementById('uploadSection').classList.remove('hidden');
+            inventoryData = [];
+        }
+
+        // --- Lógica del Dashboard ---
+        function calculateKPIs() {
+            const totalProducts = inventoryData.length;
+            const totalStock = inventoryData.reduce((acc, item) => acc + item.stock, 0);
+            const totalSales = inventoryData.reduce((acc, item) => acc + item.ventas, 0);
+            const criticalStock = inventoryData.filter(item => item.stock < 1000).length;
+
+            animateValue('kpiTotalProducts', totalProducts);
+            animateValue('kpiTotalStock', totalStock, ' m');
+            animateValue('kpiTotalSales', totalSales);
+            animateValue('kpiCritical', criticalStock);
+        }
+
+        function getStockStatus(stock) {
+            if (stock < 1000) return { class: 'bg-red-50 text-red-700 border border-red-100', dot: 'bg-red-500', label: 'Crítico', value: 'critical' };
+            if (stock < 3000) return { class: 'bg-orange-50 text-orange-700 border border-orange-100', dot: 'bg-orange-500', label: 'Medio', value: 'warning' };
+            return { class: 'bg-green-50 text-green-700 border border-green-100', dot: 'bg-green-500', label: 'Bueno', value: 'good' };
+        }
+
+        function renderTable(data) {
+            const tbody = document.getElementById('inventoryTableBody');
+            tbody.innerHTML = '';
+
+            if(data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-gray-400">No se encontraron telas</td></tr>';
+                return;
+            }
+
+            data.forEach(item => {
+                const status = getStockStatus(item.stock);
+                const row = `
+                    <tr class="hover:bg-blue-50/50 transition-colors border-b border-gray-50 last:border-b-0 group">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded inline-block">${item.codigo}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm font-semibold text-gray-900">${item.producto}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2.5 py-1 inline-flex text-xs leading-5 font-medium rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                                ${item.categoria}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right">
+                            <div class="text-sm text-gray-900 font-bold font-mono">${item.stock.toLocaleString()}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right">
+                            <div class="text-sm text-gray-500">${item.ventas.toLocaleString()}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                            <div class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${status.class}">
+                                <span class="w-1.5 h-1.5 mr-1.5 rounded-full ${status.dot}"></span>
+                                ${status.label}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+            
+            document.getElementById('tableFooterInfo').innerText = `Mostrando ${data.length} telas`;
+        }
+
+        function renderCharts() {
+            // Chart 1: Top Productos
+            const sortedBySales = [...inventoryData].sort((a, b) => b.ventas - a.ventas).slice(0, 5);
+            const ctxTop = document.getElementById('topProductsChart').getContext('2d');
+            
+            if(topProductsChartInstance) topProductsChartInstance.destroy();
+
+            topProductsChartInstance = new Chart(ctxTop, {
+                type: 'bar',
+                data: {
+                    labels: sortedBySales.map(i => i.producto),
+                    datasets: [{
+                        label: 'Metros Vendidos',
+                        data: sortedBySales.map(i => i.ventas),
+                        backgroundColor: '#0ea5e9',
+                        hoverbackgroundColor: '#0284c7',
+                        borderRadius: 6,
+                        barThickness: 'flex',
+                        maxBarThickness: 40
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: { backgroundColor: '#1e293b', padding: 12, cornerRadius: 8 }
+                    },
+                    scales: { 
+                        y: { beginAtZero: true, grid: { borderDash: [2, 4], color: '#f1f5f9' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+
+            // Chart 2: Estado Stock
+            const critical = inventoryData.filter(i => i.stock < 1000).length;
+            const warning = inventoryData.filter(i => i.stock >= 1000 && i.stock < 3000).length;
+            const good = inventoryData.filter(i => i.stock >= 3000).length;
+
+            const ctxStatus = document.getElementById('stockStatusChart').getContext('2d');
+            
+            if(stockStatusChartInstance) stockStatusChartInstance.destroy();
+
+            stockStatusChartInstance = new Chart(ctxStatus, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Crítico (<1k)', 'Medio (1k-3k)', 'Bueno (>3k)'],
+                    datasets: [{
+                        data: [critical, warning, good],
+                        backgroundColor: ['#ef4444', '#f97316', '#22c55e'],
+                        borderWidth: 0,
+                        hoverOffset: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: { size: 12 } } }
+                    }
+                }
+            });
+        }
+
+        function renderDashboard() {
+            calculateKPIs();
+            renderTable(inventoryData);
+            renderCharts();
+        }
+
+        // --- Funciones de Utilidad ---
+        function filterTable() {
+            const searchText = document.getElementById('searchInput').value.toLowerCase();
+            const statusFilter = document.getElementById('statusFilter').value;
+
+            const filteredData = inventoryData.filter(item => {
+                const matchesSearch = item.producto.toLowerCase().includes(searchText) || 
+                                      item.categoria.toLowerCase().includes(searchText) ||
+                                      String(item.codigo).toLowerCase().includes(searchText); // Búsqueda por código
+                let matchesStatus = true;
+                if (statusFilter !== 'all') {
+                    matchesStatus = getStockStatus(item.stock).value === statusFilter;
+                }
+                return matchesSearch && matchesStatus;
+            });
+            renderTable(filteredData);
+        }
+
+        function animateValue(id, end, suffix = '') {
+            const obj = document.getElementById(id);
+            if (!obj) return;
+            const start = 0;
+            const duration = 1000;
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const value = Math.floor(progress * (end - start) + start);
+                obj.innerHTML = value.toLocaleString() + suffix;
+                if (progress < 1) window.requestAnimationFrame(step);
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        function downloadTemplate() {
+            const ws_data = [
+                ["CODIGO", "PRODUCTO", "CATEGORIA", "STOCK", "VENTAS"],
+                ["784001", "Ejemplo Tela 1", "Algodón", 900, 500],
+                ["784002", "Ejemplo Tela 2", "Sintético", 3500, 1200]
+            ];
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+            XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+            XLSX.writeFile(wb, "Plantilla_Tijerazo_V2.xlsx");
+        }
+    </script>
+</body>
+</html>
